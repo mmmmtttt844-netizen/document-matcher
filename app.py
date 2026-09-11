@@ -9,11 +9,11 @@ from rapidfuzz import fuzz
 st.set_page_config(
     page_title="مطابقة المستندات",
     page_icon="📄",
-    layout="centered"
+    layout="wide"
 )
 
-st.title("📄 نظام مطابقة المستندات")
-st.write("ارفع عدة صور أو ملفات PDF، وسيتم استخراج ومقارنة المعلومات المهمة.")
+st.title("📄 مطابقة المستندات")
+st.write("ارفع المستندات وشاهد المعلومات جنبًا إلى جنب.")
 
 # =========================
 # قراءة الصور
@@ -30,12 +30,11 @@ def read_image(image):
 # قراءة PDF
 # =========================
 
-def read_pdf(file_data):
-
+def read_pdf(data):
     text = ""
 
     pdf = fitz.open(
-        stream=file_data,
+        stream=data,
         filetype="pdf"
     )
 
@@ -44,11 +43,9 @@ def read_pdf(file_data):
         page_text = page.get_text()
 
         if page_text.strip():
-
             text += page_text + "\n"
 
         else:
-
             pix = page.get_pixmap(
                 matrix=fitz.Matrix(2, 2)
             )
@@ -73,7 +70,6 @@ def extract_text(file):
     data = file.read()
 
     if file.type == "application/pdf":
-
         return read_pdf(data)
 
     image = Image.open(
@@ -87,9 +83,12 @@ def extract_text(file):
 # تنظيف النص
 # =========================
 
-def clean_text(text):
+def clean(value):
 
-    text = text.lower()
+    if value is None:
+        return ""
+
+    value = str(value).lower()
 
     replacements = {
         "أ": "ا",
@@ -102,69 +101,56 @@ def clean_text(text):
     }
 
     for old, new in replacements.items():
-        text = text.replace(old, new)
+        value = value.replace(old, new)
 
-    text = re.sub(
+    value = re.sub(
         r"\s+",
         " ",
-        text
+        value
     )
 
-    return text.strip()
+    return value.strip()
 
 
 # =========================
-# البحث عن رقم
-# =========================
-
-def find_numbers(text):
-
-    numbers = re.findall(
-        r"\d{4,}",
-        text
-    )
-
-    return list(dict.fromkeys(numbers))
-
-
-# =========================
-# استخراج معلومات أولية
+# استخراج الحقول
 # =========================
 
 def extract_information(text):
 
-    information = {}
+    info = {}
 
-    lines = [
-        line.strip()
-        for line in text.splitlines()
-        if line.strip()
-    ]
-
-    # الأرقام المهمة
-    numbers = find_numbers(text)
-
-    if numbers:
-        information["الأرقام"] = numbers
-
-    # البحث عن بعض الحقول المعروفة
     patterns = {
 
-        "الاسم": r"(?:الاسم|اسم)\s*[:\-]?\s*(.{3,60})",
+        "الاسم":
+        r"(?:الاسم|اسم)\s*[:\-]?\s*(.{3,60})",
 
-        "اسم الأب": r"(?:اسم الأب|الاب)\s*[:\-]?\s*(.{3,50})",
+        "اسم الأب":
+        r"(?:اسم الأب|الاب)\s*[:\-]?\s*(.{3,50})",
 
-        "اسم الأم": r"(?:اسم الأم|الام)\s*[:\-]?\s*(.{3,50})",
+        "اسم الجد":
+        r"(?:اسم الجد|الجد)\s*[:\-]?\s*(.{3,50})",
 
-        "الجنسية": r"(?:الجنسية)\s*[:\-]?\s*(.{2,30})",
+        "اسم الأم":
+        r"(?:اسم الأم|الام)\s*[:\-]?\s*(.{3,50})",
 
-        "العنوان": r"(?:العنوان)\s*[:\-]?\s*(.{3,100})",
+        "الجنسية":
+        r"(?:الجنسية)\s*[:\-]?\s*(.{2,30})",
 
-        "التاريخ": r"(?:التاريخ|تاريخ)\s*[:\-]?\s*(.{5,30})",
+        "العنوان":
+        r"(?:العنوان)\s*[:\-]?\s*(.{3,100})",
 
-        "الهاتف": r"(?:الهاتف|موبايل|الموبايل|رقم الهاتف)\s*[:\-]?\s*([0-9٠-٩\-\+\s]{7,20})",
+        "التاريخ":
+        r"(?:التاريخ|تاريخ)\s*[:\-]?\s*(.{5,30})",
 
-        "المبلغ": r"(?:المبلغ|القيمة)\s*[:\-]?\s*([0-9٠-٩,\.\s]+)"
+        "الهاتف":
+        r"(?:الهاتف|الموبايل|موبايل|رقم الهاتف)\s*[:\-]?\s*([0-9٠-٩\-\+\s]{7,20})",
+
+        "المبلغ":
+        r"(?:المبلغ|القيمة)\s*[:\-]?\s*([0-9٠-٩,\.\s]+)",
+
+        "رقم المستند":
+        r"(?:رقم المستند|رقم الوثيقة|رقم المعاملة)\s*[:\-]?\s*([0-9٠-٩A-Za-z\-\/]+)"
     }
 
     for field, pattern in patterns.items():
@@ -179,35 +165,17 @@ def extract_information(text):
 
             value = match.group(1).strip()
 
-            information[field] = value
+            info[field] = value
 
-    return information
-
-
-# =========================
-# مقارنة قيمتين
-# =========================
-
-def compare_values(value1, value2):
-
-    value1 = clean_text(str(value1))
-    value2 = clean_text(str(value2))
-
-    if not value1 or not value2:
-        return 0
-
-    return fuzz.token_set_ratio(
-        value1,
-        value2
-    )
+    return info
 
 
 # =========================
-# رفع الملفات
+# رفع المستندات
 # =========================
 
 files = st.file_uploader(
-    "📂 اختر المستندات",
+    "📂 ارفع المستندات",
     type=[
         "png",
         "jpg",
@@ -218,22 +186,28 @@ files = st.file_uploader(
 )
 
 
-if files:
+if not files:
+
+    st.info(
+        "ارفع مستندين أو أكثر للبدء."
+    )
+
+else:
 
     st.success(
-        f"تم رفع {len(files)} مستند/مستندات بنجاح ✅"
+        f"تم رفع {len(files)} مستند/مستندات ✅"
     )
 
     if len(files) < 2:
 
         st.warning(
-            "ارفع مستندين على الأقل للمطابقة."
+            "تحتاج إلى مستندين على الأقل."
         )
 
     else:
 
         if st.button(
-            "🔍 استخراج المعلومات والمطابقة",
+            "🔍 تحليل ومقارنة المستندات",
             type="primary"
         ):
 
@@ -244,7 +218,7 @@ if files:
             for index, file in enumerate(files):
 
                 with st.spinner(
-                    f"جاري قراءة {file.name}..."
+                    f"جاري تحليل {file.name}..."
                 ):
 
                     text = extract_text(file)
@@ -255,7 +229,6 @@ if files:
 
                     documents.append({
                         "name": file.name,
-                        "text": text,
                         "info": info
                     })
 
@@ -263,147 +236,144 @@ if files:
                     (index + 1) / len(files)
                 )
 
-
             st.success(
-                "تم استخراج المعلومات ✅"
+                "تم تحليل المستندات ✅"
             )
 
+            # ==================================
+            # اختيار مستندين للمقارنة
+            # ==================================
 
-            # =========================
-            # عرض المعلومات
-            # =========================
+            st.header("🔎 اختيار المستندات")
 
-            for document in documents:
+            names = [
+                doc["name"]
+                for doc in documents
+            ]
 
-                st.divider()
+            col1, col2 = st.columns(2)
 
-                st.subheader(
-                    f"📄 {document['name']}"
+            with col1:
+
+                first_name = st.selectbox(
+                    "المستند الأول",
+                    names,
+                    index=0
                 )
 
-                info = document["info"]
+            with col2:
 
-                if not info:
+                second_name = st.selectbox(
+                    "المستند الثاني",
+                    names,
+                    index=1
+                )
 
-                    st.warning(
-                        "لم يتم العثور على حقول واضحة."
-                    )
-
-                else:
-
-                    for field, value in info.items():
-
-                        if isinstance(value, list):
-
-                            st.write(
-                                f"**{field}:** "
-                                + ", ".join(value)
-                            )
-
-                        else:
-
-                            st.write(
-                                f"**{field}:** {value}"
-                            )
-
-
-            # =========================
-            # المطابقة
-            # =========================
-
-            st.divider()
-
-            st.header(
-                "🔍 نتائج المطابقة"
+            first = next(
+                doc for doc in documents
+                if doc["name"] == first_name
             )
 
-            base = documents[0]
+            second = next(
+                doc for doc in documents
+                if doc["name"] == second_name
+            )
 
-            for other in documents[1:]:
+            # ==================================
+            # جدول المقارنة
+            # ==================================
 
-                st.subheader(
-                    f"مقارنة: {base['name']} ↔ {other['name']}"
+            st.header("📊 مقارنة المعلومات")
+
+            fields = list(
+                set(first["info"].keys())
+                |
+                set(second["info"].keys())
+            )
+
+            if not fields:
+
+                st.error(
+                    "لم يتم العثور على معلومات قابلة للمقارنة."
                 )
 
-                fields = set(
-                    base["info"].keys()
-                ) & set(
-                    other["info"].keys()
-                )
-
-                if not fields:
-
-                    st.warning(
-                        "لم نجد حقول مشتركة واضحة للمقارنة."
-                    )
-
-                    continue
-
-                matched = 0
-                total = 0
+            else:
 
                 for field in fields:
 
-                    value1 = base["info"][field]
-                    value2 = other["info"][field]
-
-                    if isinstance(value1, list):
-
-                        value1 = " ".join(
-                            map(str, value1)
-                        )
-
-                    if isinstance(value2, list):
-
-                        value2 = " ".join(
-                            map(str, value2)
-                        )
-
-                    score = compare_values(
-                        value1,
-                        value2
+                    value1 = first["info"].get(
+                        field,
+                        "غير موجود"
                     )
 
-                    total += 1
+                    value2 = second["info"].get(
+                        field,
+                        "غير موجود"
+                    )
+
+                    score = fuzz.token_set_ratio(
+                        clean(value1),
+                        clean(value2)
+                    )
 
                     if score >= 90:
 
-                        matched += 1
-
-                        st.success(
-                            f"🟢 {field}: مطابق "
-                            f"({score:.0f}%)"
-                        )
+                        color = "#d4edda"
+                        icon = "🟢"
 
                     elif score >= 60:
 
-                        st.warning(
-                            f"🟡 {field}: يحتاج مراجعة "
-                            f"({score:.0f}%)"
-                        )
+                        color = "#fff3cd"
+                        icon = "🟡"
 
                     else:
 
-                        st.error(
-                            f"🔴 {field}: مختلف "
-                            f"({score:.0f}%)"
-                        )
+                        color = "#f8d7da"
+                        icon = "🔴"
 
-                    st.caption(
-                        f"المستند الأول: {value1}"
-                    )
+                    st.markdown(
+                        f"""
+                        <div style="
+                            border:1px solid #ddd;
+                            border-radius:10px;
+                            padding:12px;
+                            margin-bottom:10px;
+                        ">
 
-                    st.caption(
-                        f"المستند الثاني: {value2}"
-                    )
+                        <h4>{icon} {field}</h4>
 
-                if total > 0:
+                        <div style="
+                            display:grid;
+                            grid-template-columns:1fr 1fr;
+                            gap:10px;
+                        ">
 
-                    final_score = (
-                        matched / total
-                    ) * 100
+                        <div style="
+                            background:#f5f5f5;
+                            padding:12px;
+                            border-radius:8px;
+                        ">
+                        <b>المستند الأول</b><br>
+                        {value1}
+                        </div>
 
-                    st.metric(
-                        "نسبة المطابقة",
-                        f"{final_score:.0f}%"
+                        <div style="
+                            background:{color};
+                            padding:12px;
+                            border-radius:8px;
+                        ">
+                        <b>المستند الثاني</b><br>
+                        {value2}
+                        </div>
+
+                        </div>
+
+                        <p>
+                        <b>نسبة التشابه:</b>
+                        {score:.0f}%
+                        </p>
+
+                        </div>
+                        """,
+                        unsafe_allow_html=True
                     )

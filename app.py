@@ -1,3 +1,5 @@
+import io
+import math
 import streamlit as st
 from PIL import Image
 from reportlab.pdfgen import canvas
@@ -5,59 +7,166 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from docx import Document
 from docx.shared import Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
-from docx.enum.section import WD_SECTION
-import io
-import math
 
 
 # =========================================================
-# إعداد الموقع
+# إعداد الصفحة
 # =========================================================
 
 st.set_page_config(
-    page_title="PhotoPrint Pro",
+    page_title="محمد هوبي | PhotoPrint",
     page_icon="📸",
-    layout="centered"
+    layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
-st.title("📸 PhotoPrint Pro")
-st.caption("قالب صور 3×4 — ست صور في السطر")
+
+# =========================================================
+# CSS - التصميم
+# =========================================================
+
+st.markdown(
+    """
+    <style>
+
+    .stApp {
+        background:
+            linear-gradient(
+                180deg,
+                #f7faff 0%,
+                #ffffff 45%,
+                #f5f8fc 100%
+            );
+    }
+
+    .main-title {
+        text-align: center;
+        font-size: 42px;
+        font-weight: 800;
+        color: #102a43;
+        margin-top: 10px;
+        margin-bottom: 0;
+    }
+
+    .subtitle {
+        text-align: center;
+        color: #627d98;
+        font-size: 17px;
+        margin-bottom: 30px;
+    }
+
+    .brand {
+        text-align: center;
+        font-size: 15px;
+        color: #1677ff;
+        font-weight: 700;
+        margin-bottom: 5px;
+    }
+
+    .info-card {
+        background: white;
+        border-radius: 18px;
+        padding: 20px;
+        border: 1px solid #e6edf5;
+        box-shadow: 0 8px 25px rgba(16, 42, 67, 0.06);
+        margin-bottom: 15px;
+    }
+
+    .footer {
+        text-align: center;
+        color: #829ab1;
+        font-size: 13px;
+        padding: 30px 0 10px 0;
+    }
+
+    div.stButton > button {
+        border-radius: 12px;
+        min-height: 48px;
+        font-weight: 700;
+        border: none;
+        background: linear-gradient(
+            135deg,
+            #1677ff,
+            #0052cc
+        );
+        color: white;
+    }
+
+    div.stDownloadButton > button {
+        border-radius: 12px;
+        min-height: 48px;
+        font-weight: 700;
+    }
+
+    [data-testid="stFileUploader"] {
+        background: white;
+        border-radius: 18px;
+        padding: 10px;
+        border: 1px solid #dce6f2;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 # =========================================================
-# الإعدادات الثابتة
+# رأس الموقع
 # =========================================================
 
-PHOTO_WIDTH_CM = 3
-PHOTO_HEIGHT_CM = 4
+st.markdown(
+    '<div class="brand">📸 PHOTO PRINT</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    '<div class="main-title">محمد هوبي</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    '<div class="subtitle">'
+    'تجهيز صور 3×4 للطباعة — Word و PDF'
+    '</div>',
+    unsafe_allow_html=True
+)
+
+
+# =========================================================
+# إعدادات القالب الثابت
+# =========================================================
+
+PHOTO_WIDTH_CM = 3.0
+PHOTO_HEIGHT_CM = 4.0
 
 COLUMNS = 6
 
-A4_WIDTH_CM = 21
+A4_WIDTH_CM = 21.0
 A4_HEIGHT_CM = 29.7
 
 TOP_MARGIN_CM = 0.5
-SIDE_MARGIN_CM = 0.5
+LEFT_MARGIN_CM = 0.5
 
 GAP_CM = 0.15
 
-
-# =========================================================
-# رفع الصورة
-# =========================================================
-
-uploaded = st.file_uploader(
-    "📸 ارفع الصورة",
-    type=["jpg", "jpeg", "png", "webp"]
-)
+CM_TO_PT = 28.3464567
 
 
 # =========================================================
-# قص الصورة إلى 3×4
+# وظائف مساعدة
 # =========================================================
+
+def cm_to_pt(value):
+    return value * CM_TO_PT
+
 
 def crop_to_3x4(image):
+    """
+    قص الصورة إلى نسبة 3:4 من المنتصف.
+    """
 
     image = image.convert("RGB")
 
@@ -83,7 +192,7 @@ def crop_to_3x4(image):
             )
         )
 
-    else:
+    elif current_ratio < target_ratio:
 
         new_height = int(
             image.width / target_ratio
@@ -105,18 +214,18 @@ def crop_to_3x4(image):
     return image
 
 
-# =========================================================
-# تحويل الصورة إلى JPG بالذاكرة
-# =========================================================
-
-def image_to_buffer(image):
+def image_to_jpeg_buffer(image):
+    """
+    تحويل الصورة إلى JPEG في الذاكرة.
+    """
 
     buffer = io.BytesIO()
 
     image.save(
         buffer,
         format="JPEG",
-        quality=95
+        quality=95,
+        optimize=True
     )
 
     buffer.seek(0)
@@ -124,49 +233,54 @@ def image_to_buffer(image):
     return buffer
 
 
+def calculate_rows_per_page():
+    """
+    حساب عدد الأسطر التي تدخل في ورقة A4.
+    """
+
+    usable_height = (
+        A4_HEIGHT_CM
+        - TOP_MARGIN_CM
+        - 0.5
+    )
+
+    row_height = (
+        PHOTO_HEIGHT_CM
+        + GAP_CM
+    )
+
+    return max(
+        1,
+        int(
+            (
+                usable_height
+                + GAP_CM
+            )
+            /
+            row_height
+        )
+    )
+
+
 # =========================================================
 # إنشاء PDF
 # =========================================================
 
-def create_pdf(image, copies):
+def create_pdf(image_items):
 
-    # تحويل إلى 3×4
-    image = crop_to_3x4(image)
+    rows_per_page = calculate_rows_per_page()
 
-    image_buffer = image_to_buffer(image)
-
-    image_reader = ImageReader(
-        image_buffer
+    photos_per_page = (
+        COLUMNS * rows_per_page
     )
 
-    # A4 بالنقاط
-    page_width, page_height = A4
-
-    CM_TO_PT = 28.3464567
-
-    photo_width = (
-        PHOTO_WIDTH_CM * CM_TO_PT
+    total_photos = sum(
+        item["copies"]
+        for item in image_items
     )
 
-    photo_height = (
-        PHOTO_HEIGHT_CM * CM_TO_PT
-    )
-
-    top_margin = (
-        TOP_MARGIN_CM * CM_TO_PT
-    )
-
-    side_margin = (
-        SIDE_MARGIN_CM * CM_TO_PT
-    )
-
-    gap = (
-        GAP_CM * CM_TO_PT
-    )
-
-    # حساب عدد الأسطر
-    rows = math.ceil(
-        copies / COLUMNS
+    total_pages = math.ceil(
+        total_photos / photos_per_page
     )
 
     output = io.BytesIO()
@@ -176,154 +290,186 @@ def create_pdf(image, copies):
         pagesize=A4
     )
 
-    current_copy = 0
+    page_width, page_height = A4
 
-    # عدد الصور التي يمكن وضعها بالطول
-    available_height = (
-        page_height
-        - top_margin
-        - side_margin
+    photo_width = cm_to_pt(
+        PHOTO_WIDTH_CM
     )
 
-    rows_per_page = int(
-        (
-            available_height + gap
-        )
-        /
-        (
-            photo_height + gap
-        )
+    photo_height = cm_to_pt(
+        PHOTO_HEIGHT_CM
     )
 
-    rows_per_page = max(
-        1,
-        rows_per_page
+    gap = cm_to_pt(
+        GAP_CM
     )
 
-    photos_per_page = (
-        COLUMNS * rows_per_page
+    left_margin = cm_to_pt(
+        LEFT_MARGIN_CM
     )
 
-    while current_copy < copies:
+    top_margin = cm_to_pt(
+        TOP_MARGIN_CM
+    )
 
-        page_start = current_copy
+    # تحضير الصور
+    prepared_images = []
 
-        # عدد الصور بهذه الصفحة
-        page_remaining = (
-            copies - current_copy
+    for item in image_items:
+
+        cropped = crop_to_3x4(
+            item["image"]
         )
 
-        page_photos = min(
-            page_remaining,
-            photos_per_page
+        buffer = image_to_jpeg_buffer(
+            cropped
         )
 
-        page_rows = math.ceil(
-            page_photos / COLUMNS
+        reader = ImageReader(
+            buffer
         )
 
-        for i in range(page_photos):
+        for _ in range(
+            item["copies"]
+        ):
 
-            row = i // COLUMNS
-            column = i % COLUMNS
-
-            x = (
-                side_margin
-                +
-                column *
-                (
-                    photo_width + gap
-                )
+            prepared_images.append(
+                reader
             )
 
-            y = (
-                page_height
-                -
-                top_margin
-                -
+    # رسم الصور
+    for index, reader in enumerate(
+        prepared_images
+    ):
+
+        slot = index % photos_per_page
+
+        row = slot // COLUMNS
+        column = slot % COLUMNS
+
+        x = (
+            left_margin
+            +
+            column *
+            (
+                photo_width
+                + gap
+            )
+        )
+
+        y = (
+            page_height
+            -
+            top_margin
+            -
+            photo_height
+            -
+            row *
+            (
                 photo_height
-                -
-                row *
-                (
-                    photo_height + gap
-                )
+                + gap
             )
+        )
 
-            pdf.drawImage(
-                image_reader,
-                x,
-                y,
-                width=photo_width,
-                height=photo_height,
-                preserveAspectRatio=False
-            )
+        # الصورة
+        pdf.drawImage(
+            reader,
+            x,
+            y,
+            width=photo_width,
+            height=photo_height,
+            preserveAspectRatio=False,
+            mask="auto"
+        )
 
-            # -----------------------------
-            # علامات القص
-            # -----------------------------
+        # علامات القص
+        pdf.setStrokeColorRGB(
+            0.55,
+            0.55,
+            0.55
+        )
 
-            pdf.setLineWidth(0.3)
+        pdf.setLineWidth(
+            0.35
+        )
 
-            # يسار
-            pdf.line(
-                x - 3,
-                y,
-                x - 1,
-                y
-            )
+        mark = 3
 
-            pdf.line(
-                x,
-                y - 3,
-                x,
-                y - 1
-            )
+        # أعلى يسار
+        pdf.line(
+            x - mark,
+            y + photo_height,
+            x + 1,
+            y + photo_height
+        )
 
-            # يمين
-            pdf.line(
-                x + photo_width + 1,
-                y,
-                x + photo_width + 3,
-                y
-            )
+        pdf.line(
+            x,
+            y + photo_height + mark,
+            x,
+            y + photo_height - 1
+        )
 
-            pdf.line(
-                x + photo_width,
-                y - 3,
-                x + photo_width,
-                y - 1
-            )
+        # أعلى يمين
+        pdf.line(
+            x + photo_width - 1,
+            y + photo_height,
+            x + photo_width + mark,
+            y + photo_height
+        )
 
-            # أعلى
-            pdf.line(
-                x - 3,
-                y + photo_height,
-                x - 1,
-                y + photo_height
-            )
+        pdf.line(
+            x + photo_width,
+            y + photo_height + mark,
+            x + photo_width,
+            y + photo_height - 1
+        )
 
-            pdf.line(
-                x,
-                y + photo_height + 1,
-                x,
-                y + photo_height + 3
-            )
+        # أسفل يسار
+        pdf.line(
+            x - mark,
+            y,
+            x + 1,
+            y
+        )
 
-            pdf.line(
-                x + photo_width + 1,
-                y + photo_height,
-                x + photo_width + 3,
-                y + photo_height
-            )
+        pdf.line(
+            x,
+            y - mark,
+            x,
+            y + 1
+        )
 
-            pdf.line(
-                x + photo_width,
-                y + photo_height + 1,
-                x + photo_width,
-                y + photo_height + 3
-            )
+        # أسفل يمين
+        pdf.line(
+            x + photo_width - 1,
+            y,
+            x + photo_width + mark,
+            y
+        )
 
-        current_copy += page_photos
+        pdf.line(
+            x + photo_width,
+            y - mark,
+            x + photo_width,
+            y + 1
+        )
+
+        # صفحة جديدة
+        if (
+            (index + 1)
+            % photos_per_page
+            == 0
+        ):
+
+            pdf.showPage()
+
+    # إذا الصفحة الأخيرة لم تكن ممتلئة
+    if (
+        len(prepared_images)
+        % photos_per_page
+        != 0
+    ):
 
         pdf.showPage()
 
@@ -331,28 +477,20 @@ def create_pdf(image, copies):
 
     output.seek(0)
 
-    return output
+    return output, total_pages
 
 
 # =========================================================
 # إنشاء Word
 # =========================================================
 
-def create_word(image, copies):
-
-    image = crop_to_3x4(image)
-
-    image_buffer = image_to_buffer(image)
-
-    # -----------------------------------------
-    # إنشاء مستند Word
-    # -----------------------------------------
+def create_word(image_items):
 
     document = Document()
 
     section = document.sections[0]
 
-    # حجم A4
+    # A4
     section.page_width = Cm(
         A4_WIDTH_CM
     )
@@ -371,79 +509,137 @@ def create_word(image, copies):
     )
 
     section.left_margin = Cm(
-        SIDE_MARGIN_CM
+        LEFT_MARGIN_CM
     )
 
     section.right_margin = Cm(
-        SIDE_MARGIN_CM
+        0.5
     )
 
-    # -----------------------------------------
-    # عدد الصفوف
-    # -----------------------------------------
+    # تحضير الصور والنسخ
+    prepared_images = []
 
-    rows = math.ceil(
-        copies / COLUMNS
+    for item in image_items:
+
+        cropped = crop_to_3x4(
+            item["image"]
+        )
+
+        buffer = image_to_jpeg_buffer(
+            cropped
+        )
+
+        data = buffer.getvalue()
+
+        for _ in range(
+            item["copies"]
+        ):
+
+            prepared_images.append(
+                data
+            )
+
+    rows_per_page = (
+        calculate_rows_per_page()
     )
 
-    # إنشاء جدول 6 أعمدة
-    table = document.add_table(
-        rows=rows,
-        cols=COLUMNS
+    photos_per_page = (
+        COLUMNS * rows_per_page
     )
 
-    table.autofit = False
-
-    # -----------------------------------------
-    # إضافة الصور
-    # -----------------------------------------
+    # -----------------------------------------------------
+    # إنشاء صفحات Word على شكل جداول
+    # -----------------------------------------------------
 
     current = 0
 
-    for row in table.rows:
+    while current < len(
+        prepared_images
+    ):
 
-        for cell in row.cells:
+        page_items = prepared_images[
+            current:
+            current + photos_per_page
+        ]
 
-            cell.width = Cm(
-                PHOTO_WIDTH_CM
+        rows = math.ceil(
+            len(page_items)
+            / COLUMNS
+        )
+
+        table = document.add_table(
+            rows=rows,
+            cols=COLUMNS
+        )
+
+        table.autofit = False
+
+        # إزالة المسافات داخل الجدول
+        table.allow_autofit = False
+
+        position = 0
+
+        for row in table.rows:
+
+            row.height = Cm(
+                PHOTO_HEIGHT_CM
             )
 
-            cell.vertical_alignment = (
-                WD_CELL_VERTICAL_ALIGNMENT.CENTER
-            )
+            for cell in row.cells:
 
-            if current < copies:
-
-                paragraph = (
-                    cell.paragraphs[0]
+                cell.width = Cm(
+                    PHOTO_WIDTH_CM
                 )
 
-                paragraph.alignment = 1
+                cell.vertical_alignment = (
+                    WD_CELL_VERTICAL_ALIGNMENT.TOP
+                )
 
-                run = paragraph.add_run()
+                if position < len(
+                    page_items
+                ):
 
-                # إضافة الصورة
-                run.add_picture(
-                    io.BytesIO(
-                        image_buffer.getvalue()
-                    ),
-                    width=Cm(
-                        PHOTO_WIDTH_CM
-                    ),
-                    height=Cm(
-                        PHOTO_HEIGHT_CM
+                    paragraph = (
+                        cell.paragraphs[0]
                     )
-                )
 
-                current += 1
+                    paragraph.alignment = (
+                        WD_ALIGN_PARAGRAPH.CENTER
+                    )
 
-            else:
+                    paragraph.paragraph_format.space_before = 0
+                    paragraph.paragraph_format.space_after = 0
 
-                cell.text = ""
+                    run = (
+                        paragraph.add_run()
+                    )
 
-    # -----------------------------------------
-    # حفظ Word
-    # -----------------------------------------
+                    run.add_picture(
+                        io.BytesIO(
+                            page_items[position]
+                        ),
+                        width=Cm(
+                            PHOTO_WIDTH_CM
+                        ),
+                        height=Cm(
+                            PHOTO_HEIGHT_CM
+                        )
+                    )
+
+                    position += 1
+
+                else:
+
+                    cell.text = ""
+
+        current += photos_per_page
+
+        # صفحة جديدة إذا بقيت صور
+        if current < len(
+            prepared_images
+        ):
+
+            document.add_page_break()
 
     output = io.BytesIO()
 
@@ -457,93 +653,245 @@ def create_word(image, copies):
 
 
 # =========================================================
-# تشغيل البرنامج
+# رفع الصور
 # =========================================================
 
-if uploaded:
+st.markdown(
+    '<div class="info-card">',
+    unsafe_allow_html=True
+)
 
-    image = Image.open(
-        uploaded
-    )
+st.subheader(
+    "📸 اختر الصور"
+)
+
+uploaded_files = st.file_uploader(
+    "تگدر تختار أكثر من صورة بنفس الوقت",
+    type=[
+        "jpg",
+        "jpeg",
+        "png",
+        "webp"
+    ],
+    accept_multiple_files=True
+)
+
+st.markdown(
+    "</div>",
+    unsafe_allow_html=True
+)
+
+
+# =========================================================
+# عرض الصور
+# =========================================================
+
+if uploaded_files:
 
     st.success(
-        "تم رفع الصورة بنجاح ✅"
-    )
-
-    # -----------------------------------------
-    # معاينة
-    # -----------------------------------------
-
-    st.subheader(
-        "👀 الصورة"
-    )
-
-    st.image(
-        image,
-        width=220
+        f"تم اختيار {len(uploaded_files)} صورة ✅"
     )
 
     st.divider()
 
-    # -----------------------------------------
-    # عدد النسخ
-    # -----------------------------------------
-
-    copies = st.number_input(
-        "🔢 عدد النسخ",
-        min_value=1,
-        max_value=200,
-        value=6,
-        step=1
+    st.subheader(
+        "🖼️ الصور وعدد النسخ"
     )
+
+    image_items = []
+
+    total_copies = 0
+
+    for index, uploaded_file in enumerate(
+        uploaded_files
+    ):
+
+        try:
+
+            image = Image.open(
+                uploaded_file
+            ).convert("RGB")
+
+        except Exception:
+
+            st.error(
+                f"تعذر قراءة الصورة: "
+                f"{uploaded_file.name}"
+            )
+
+            continue
+
+        col1, col2, col3 = st.columns(
+            [1.2, 3, 1.5]
+        )
+
+        with col1:
+
+            st.image(
+                image,
+                width=100
+            )
+
+        with col2:
+
+            st.write(
+                f"**{uploaded_file.name}**"
+            )
+
+            st.caption(
+                f"{image.width} × "
+                f"{image.height} px"
+            )
+
+        with col3:
+
+            copies = st.number_input(
+                "عدد النسخ",
+                min_value=1,
+                max_value=200,
+                value=6,
+                step=1,
+                key=f"copies_{index}"
+            )
+
+        image_items.append(
+            {
+                "image": image,
+                "name": uploaded_file.name,
+                "copies": copies
+            }
+        )
+
+        total_copies += copies
+
+        st.divider()
+
+    # =====================================================
+    # ملخص
+    # =====================================================
+
+    rows_per_page = (
+        calculate_rows_per_page()
+    )
+
+    photos_per_page = (
+        COLUMNS * rows_per_page
+    )
+
+    pages = math.ceil(
+        total_copies
+        /
+        photos_per_page
+    )
+
+    a, b, c = st.columns(3)
+
+    with a:
+
+        st.metric(
+            "📸 عدد الصور",
+            len(image_items)
+        )
+
+    with b:
+
+        st.metric(
+            "🔢 إجمالي النسخ",
+            total_copies
+        )
+
+    with c:
+
+        st.metric(
+            "📄 صفحات A4",
+            pages
+        )
 
     st.info(
-        f"📄 القالب: A4 | "
-        f"📸 المقاس: 3×4 سم | "
-        f"🖼️ 6 صور بالسطر | "
-        f"🔢 عدد النسخ: {copies}"
+        f"القالب ثابت: "
+        f"**6 صور بالسطر** × "
+        f"**{rows_per_page} أسطر تقريبًا بالصفحة**"
     )
 
-    # -----------------------------------------
-    # زر إنشاء الملفات
-    # -----------------------------------------
+    # =====================================================
+    # تجهيز
+    # =====================================================
+
+    st.divider()
 
     if st.button(
-        "🖨️ تجهيز الملفات",
+        "🖨️ تجهيز Word و PDF",
         type="primary",
         use_container_width=True
     ):
 
         with st.spinner(
-            "جاري تجهيز Word و PDF..."
+            "جاري تجهيز الملفات..."
         ):
 
-            pdf_file = create_pdf(
-                image,
-                copies
-            )
+            try:
 
-            word_file = create_word(
-                image,
-                copies
-            )
+                pdf_file, pdf_pages = (
+                    create_pdf(
+                        image_items
+                    )
+                )
+
+                word_file = (
+                    create_word(
+                        image_items
+                    )
+                )
+
+                st.session_state[
+                    "pdf_file"
+                ] = pdf_file.getvalue()
+
+                st.session_state[
+                    "word_file"
+                ] = word_file.getvalue()
+
+                st.session_state[
+                    "generated"
+                ] = True
+
+            except Exception as error:
+
+                st.session_state[
+                    "generated"
+                ] = False
+
+                st.error(
+                    "حدث خطأ أثناء إنشاء الملفات."
+                )
+
+                st.exception(
+                    error
+                )
+
+    # =====================================================
+    # أزرار التحميل
+    # =====================================================
+
+    if st.session_state.get(
+        "generated",
+        False
+    ):
 
         st.success(
             "✅ تم تجهيز الملفات بنجاح"
         )
-
-        # -------------------------------------
-        # أزرار التحميل
-        # -------------------------------------
 
         col1, col2 = st.columns(2)
 
         with col1:
 
             st.download_button(
-                "📄 تحميل Word",
-                data=word_file,
-                file_name="صور_3x4.docx",
+                "📘 تحميل Word",
+                data=st.session_state[
+                    "word_file"
+                ],
+                file_name="محمد_هوبي_PhotoPrint.docx",
                 mime=(
                     "application/vnd.openxmlformats-"
                     "officedocument.wordprocessingml.document"
@@ -555,8 +903,25 @@ if uploaded:
 
             st.download_button(
                 "📕 تحميل PDF",
-                data=pdf_file,
-                file_name="صور_3x4.pdf",
+                data=st.session_state[
+                    "pdf_file"
+                ],
+                file_name="محمد_هوبي_PhotoPrint.pdf",
                 mime="application/pdf",
                 use_container_width=True
             )
+
+
+# =========================================================
+# حقوق الموقع
+# =========================================================
+
+st.markdown(
+    """
+    <div class="footer">
+        © 2026 محمد هوبي — جميع الحقوق محفوظة<br>
+        محمد هوبي | PhotoPrint
+    </div>
+    """,
+    unsafe_allow_html=True
+)

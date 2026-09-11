@@ -3,64 +3,65 @@ from PIL import Image
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
+from docx import Document
+from docx.shared import Cm
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+from docx.enum.section import WD_SECTION
 import io
 import math
 
-# ==========================================
-# إعداد الصفحة
-# ==========================================
+
+# =========================================================
+# إعداد الموقع
+# =========================================================
 
 st.set_page_config(
     page_title="PhotoPrint Pro",
     page_icon="📸",
-    layout="wide"
+    layout="centered"
 )
 
 st.title("📸 PhotoPrint Pro")
-st.caption("تجهيز عدة صور للطباعة تلقائيًا على ورق A4")
-
-# ==========================================
-# المقاسات
-# ==========================================
-
-SIZES = {
-    "3 × 4 سم": (3, 4),
-    "4 × 6 سم": (4, 6),
-    "5 × 5 سم": (5, 5),
-    "6 × 9 سم": (6, 9),
-    "10 × 15 سم": (10, 15),
-}
-
-# ==========================================
-# القوالب
-# ==========================================
-
-TEMPLATES = {
-    "6 صور بالسطر": 6,
-    "8 صور بالسطر": 8,
-    "10 صور بالسطر": 10,
-    "5 صور بالسطر": 5,
-    "4 صور بالسطر": 4,
-    "مخصص": None,
-}
-
-A4_WIDTH, A4_HEIGHT = A4
-CM = 28.3464567
+st.caption("قالب صور 3×4 — ست صور في السطر")
 
 
-def cm_to_pt(value):
-    return value * CM
+# =========================================================
+# الإعدادات الثابتة
+# =========================================================
+
+PHOTO_WIDTH_CM = 3
+PHOTO_HEIGHT_CM = 4
+
+COLUMNS = 6
+
+A4_WIDTH_CM = 21
+A4_HEIGHT_CM = 29.7
+
+TOP_MARGIN_CM = 0.5
+SIDE_MARGIN_CM = 0.5
+
+GAP_CM = 0.15
 
 
-# ==========================================
-# قص الصورة حسب المقاس
-# ==========================================
+# =========================================================
+# رفع الصورة
+# =========================================================
 
-def crop_image(image, width_cm, height_cm):
+uploaded = st.file_uploader(
+    "📸 ارفع الصورة",
+    type=["jpg", "jpeg", "png", "webp"]
+)
+
+
+# =========================================================
+# قص الصورة إلى 3×4
+# =========================================================
+
+def crop_to_3x4(image):
 
     image = image.convert("RGB")
 
-    target_ratio = width_cm / height_cm
+    target_ratio = 3 / 4
     current_ratio = image.width / image.height
 
     if current_ratio > target_ratio:
@@ -104,11 +105,11 @@ def crop_image(image, width_cm, height_cm):
     return image
 
 
-# ==========================================
-# تحويل الصورة إلى ImageReader
-# ==========================================
+# =========================================================
+# تحويل الصورة إلى JPG بالذاكرة
+# =========================================================
 
-def make_reader(image):
+def image_to_buffer(image):
 
     buffer = io.BytesIO()
 
@@ -120,134 +121,53 @@ def make_reader(image):
 
     buffer.seek(0)
 
-    return ImageReader(buffer)
+    return buffer
 
 
-# ==========================================
-# حساب ترتيب الصور
-# ==========================================
+# =========================================================
+# إنشاء PDF
+# =========================================================
 
-def calculate_layout(
-    width_cm,
-    height_cm,
-    columns,
-    gap_cm,
-    margin_cm
-):
+def create_pdf(image, copies):
 
-    photo_w = cm_to_pt(width_cm)
-    photo_h = cm_to_pt(height_cm)
+    # تحويل إلى 3×4
+    image = crop_to_3x4(image)
 
-    gap = cm_to_pt(gap_cm)
-    margin = cm_to_pt(margin_cm)
+    image_buffer = image_to_buffer(image)
 
-    available_w = (
-        A4_WIDTH - margin * 2
+    image_reader = ImageReader(
+        image_buffer
     )
 
-    available_h = (
-        A4_HEIGHT - margin * 2
+    # A4 بالنقاط
+    page_width, page_height = A4
+
+    CM_TO_PT = 28.3464567
+
+    photo_width = (
+        PHOTO_WIDTH_CM * CM_TO_PT
     )
 
-    # العدد الفعلي الممكن بالسطر
-    max_columns = int(
-        (available_w + gap)
-        /
-        (photo_w + gap)
+    photo_height = (
+        PHOTO_HEIGHT_CM * CM_TO_PT
     )
 
-    columns = min(
-        columns,
-        max_columns
+    top_margin = (
+        TOP_MARGIN_CM * CM_TO_PT
     )
 
-    if columns < 1:
-        return None
-
-    rows = int(
-        (available_h + gap)
-        /
-        (photo_h + gap)
+    side_margin = (
+        SIDE_MARGIN_CM * CM_TO_PT
     )
 
-    if rows < 1:
-        return None
-
-    per_page = columns * rows
-
-    return {
-        "columns": columns,
-        "rows": rows,
-        "per_page": per_page,
-        "photo_w": photo_w,
-        "photo_h": photo_h,
-        "gap": gap,
-        "margin": margin,
-    }
-
-
-# ==========================================
-# إنشاء PDF متعدد الصور
-# ==========================================
-
-def create_pdf(
-    image_items,
-    width_cm,
-    height_cm,
-    columns,
-    gap_cm,
-    margin_cm
-):
-
-    layout = calculate_layout(
-        width_cm,
-        height_cm,
-        columns,
-        gap_cm,
-        margin_cm
+    gap = (
+        GAP_CM * CM_TO_PT
     )
 
-    if layout is None:
-        return None, 0
-
-    photo_w = layout["photo_w"]
-    photo_h = layout["photo_h"]
-    gap = layout["gap"]
-    rows = layout["rows"]
-    columns = layout["columns"]
-
-    total_slots = columns * rows
-
-    # --------------------------------------
-    # تحضير كل الصور والنسخ
-    # --------------------------------------
-
-    items = []
-
-    for item in image_items:
-
-        prepared = crop_image(
-            item["image"],
-            width_cm,
-            height_cm
-        )
-
-        reader = make_reader(
-            prepared
-        )
-
-        for _ in range(
-            item["copies"]
-        ):
-
-            items.append({
-                "reader": reader,
-                "name": item["name"]
-            })
-
-    # --------------------------------------
-    # إنشاء PDF
-    # --------------------------------------
+    # حساب عدد الأسطر
+    rows = math.ceil(
+        copies / COLUMNS
+    )
 
     output = io.BytesIO()
 
@@ -256,391 +176,387 @@ def create_pdf(
         pagesize=A4
     )
 
-    total_pages = (
-        math.ceil(
-            len(items) / total_slots
-        )
-        if items
-        else 0
+    current_copy = 0
+
+    # عدد الصور التي يمكن وضعها بالطول
+    available_height = (
+        page_height
+        - top_margin
+        - side_margin
     )
 
-    for index, item in enumerate(items):
+    rows_per_page = int(
+        (
+            available_height + gap
+        )
+        /
+        (
+            photo_height + gap
+        )
+    )
 
-        slot = index % total_slots
+    rows_per_page = max(
+        1,
+        rows_per_page
+    )
 
-        row = slot // columns
-        col = slot % columns
+    photos_per_page = (
+        COLUMNS * rows_per_page
+    )
 
-        if slot == 0:
+    while current_copy < copies:
 
-            # توسيط القالب
-            total_w = (
-                columns * photo_w
+        page_start = current_copy
+
+        # عدد الصور بهذه الصفحة
+        page_remaining = (
+            copies - current_copy
+        )
+
+        page_photos = min(
+            page_remaining,
+            photos_per_page
+        )
+
+        page_rows = math.ceil(
+            page_photos / COLUMNS
+        )
+
+        for i in range(page_photos):
+
+            row = i // COLUMNS
+            column = i % COLUMNS
+
+            x = (
+                side_margin
                 +
-                (columns - 1) * gap
+                column *
+                (
+                    photo_width + gap
+                )
             )
 
-            total_h = (
-                rows * photo_h
-                +
-                (rows - 1) * gap
+            y = (
+                page_height
+                -
+                top_margin
+                -
+                photo_height
+                -
+                row *
+                (
+                    photo_height + gap
+                )
             )
 
-            start_x = (
-                A4_WIDTH - total_w
-            ) / 2
-
-            start_y = (
-                A4_HEIGHT + total_h
-            ) / 2
-
-        x = (
-            start_x
-            +
-            col * (
-                photo_w + gap
+            pdf.drawImage(
+                image_reader,
+                x,
+                y,
+                width=photo_width,
+                height=photo_height,
+                preserveAspectRatio=False
             )
-        )
 
-        y = (
-            start_y
-            -
-            photo_h
-            -
-            row * (
-                photo_h + gap
+            # -----------------------------
+            # علامات القص
+            # -----------------------------
+
+            pdf.setLineWidth(0.3)
+
+            # يسار
+            pdf.line(
+                x - 3,
+                y,
+                x - 1,
+                y
             )
-        )
 
-        pdf.drawImage(
-            item["reader"],
-            x,
-            y,
-            width=photo_w,
-            height=photo_h,
-            preserveAspectRatio=False
-        )
+            pdf.line(
+                x,
+                y - 3,
+                x,
+                y - 1
+            )
 
-        # علامات القص
-        pdf.setLineWidth(0.35)
+            # يمين
+            pdf.line(
+                x + photo_width + 1,
+                y,
+                x + photo_width + 3,
+                y
+            )
 
-        # أعلى يسار
-        pdf.line(
-            x - 4,
-            y + photo_h,
-            x + 3,
-            y + photo_h
-        )
+            pdf.line(
+                x + photo_width,
+                y - 3,
+                x + photo_width,
+                y - 1
+            )
 
-        pdf.line(
-            x,
-            y + photo_h + 4,
-            x,
-            y + photo_h - 3
-        )
+            # أعلى
+            pdf.line(
+                x - 3,
+                y + photo_height,
+                x - 1,
+                y + photo_height
+            )
 
-        # أعلى يمين
-        pdf.line(
-            x + photo_w - 3,
-            y + photo_h,
-            x + photo_w + 4,
-            y + photo_h
-        )
+            pdf.line(
+                x,
+                y + photo_height + 1,
+                x,
+                y + photo_height + 3
+            )
 
-        pdf.line(
-            x + photo_w,
-            y + photo_h + 4,
-            x + photo_w,
-            y + photo_h - 3
-        )
+            pdf.line(
+                x + photo_width + 1,
+                y + photo_height,
+                x + photo_width + 3,
+                y + photo_height
+            )
 
-        # أسفل يسار
-        pdf.line(
-            x - 4,
-            y,
-            x + 3,
-            y
-        )
+            pdf.line(
+                x + photo_width,
+                y + photo_height + 1,
+                x + photo_width,
+                y + photo_height + 3
+            )
 
-        pdf.line(
-            x,
-            y - 4,
-            x,
-            y + 3
-        )
+        current_copy += page_photos
 
-        # أسفل يمين
-        pdf.line(
-            x + photo_w - 3,
-            y,
-            x + photo_w + 4,
-            y
-        )
-
-        pdf.line(
-            x + photo_w,
-            y - 4,
-            x + photo_w,
-            y + 3
-        )
-
-        # إذا الصفحة امتلأت
-        if (
-            (index + 1) % total_slots == 0
-        ):
-
-            pdf.showPage()
-
-    # إذا بقيت صور بصفحة أخيرة
-    if len(items) % total_slots != 0:
         pdf.showPage()
 
     pdf.save()
 
     output.seek(0)
 
-    return output, total_pages
+    return output
 
 
-# ==========================================
-# رفع عدة صور
-# ==========================================
+# =========================================================
+# إنشاء Word
+# =========================================================
 
-uploaded_files = st.file_uploader(
-    "📸 ارفع الصور",
-    type=[
-        "jpg",
-        "jpeg",
-        "png",
-        "webp"
-    ],
-    accept_multiple_files=True
-)
+def create_word(image, copies):
 
+    image = crop_to_3x4(image)
 
-if uploaded_files:
+    image_buffer = image_to_buffer(image)
 
-    st.success(
-        f"تم رفع {len(uploaded_files)} صور ✅"
+    # -----------------------------------------
+    # إنشاء مستند Word
+    # -----------------------------------------
+
+    document = Document()
+
+    section = document.sections[0]
+
+    # حجم A4
+    section.page_width = Cm(
+        A4_WIDTH_CM
     )
 
-    st.divider()
-
-    # ======================================
-    # إعدادات عامة
-    # ======================================
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        size_name = st.selectbox(
-            "📐 مقاس الصور",
-            list(SIZES.keys())
-        )
-
-        photo_w, photo_h = SIZES[
-            size_name
-        ]
-
-    with col2:
-
-        template_name = st.selectbox(
-            "🧩 قالب الطباعة",
-            list(TEMPLATES.keys())
-        )
-
-    template_columns = TEMPLATES[
-        template_name
-    ]
-
-    if template_columns is None:
-
-        columns = st.number_input(
-            "عدد الصور بالسطر",
-            min_value=1,
-            max_value=10,
-            value=6
-        )
-
-    else:
-
-        columns = template_columns
-
-    # ======================================
-    # المسافة
-    # ======================================
-
-    gap = st.number_input(
-        "↔️ المسافة بين الصور (سم)",
-        min_value=0.0,
-        max_value=2.0,
-        value=0.15,
-        step=0.05
+    section.page_height = Cm(
+        A4_HEIGHT_CM
     )
 
-    st.divider()
-
-    st.subheader(
-        "🧾 عدد النسخ لكل صورة"
+    # الهوامش
+    section.top_margin = Cm(
+        TOP_MARGIN_CM
     )
 
-    # ======================================
-    # قائمة الصور
-    # ======================================
-
-    image_items = []
-
-    total_copies = 0
-
-    for index, file in enumerate(
-        uploaded_files
-    ):
-
-        try:
-
-            image = Image.open(
-                file
-            ).convert("RGB")
-
-        except:
-
-            st.error(
-                f"تعذر قراءة {file.name}"
-            )
-
-            continue
-
-        col1, col2, col3 = st.columns(
-            [1, 3, 2]
-        )
-
-        with col1:
-
-            st.image(
-                image,
-                width=100
-            )
-
-        with col2:
-
-            st.write(
-                f"**{file.name}**"
-            )
-
-            st.caption(
-                f"{image.width} × {image.height} px"
-            )
-
-        with col3:
-
-            copies = st.number_input(
-                "عدد النسخ",
-                min_value=1,
-                max_value=100,
-                value=6,
-                key=f"copies_{index}"
-            )
-
-        image_items.append({
-            "image": image,
-            "name": file.name,
-            "copies": copies
-        })
-
-        total_copies += copies
-
-        st.divider()
-
-    # ======================================
-    # ملخص
-    # ======================================
-
-    layout = calculate_layout(
-        photo_w,
-        photo_h,
-        columns,
-        gap,
+    section.bottom_margin = Cm(
         0.5
     )
 
-    if layout:
+    section.left_margin = Cm(
+        SIDE_MARGIN_CM
+    )
 
-        pages = math.ceil(
-            total_copies
-            /
-            layout["per_page"]
-        )
+    section.right_margin = Cm(
+        SIDE_MARGIN_CM
+    )
 
-        c1, c2, c3 = st.columns(3)
+    # -----------------------------------------
+    # عدد الصفوف
+    # -----------------------------------------
 
-        with c1:
-            st.metric(
-                "📸 إجمالي النسخ",
-                total_copies
+    rows = math.ceil(
+        copies / COLUMNS
+    )
+
+    # إنشاء جدول 6 أعمدة
+    table = document.add_table(
+        rows=rows,
+        cols=COLUMNS
+    )
+
+    table.autofit = False
+
+    # -----------------------------------------
+    # إضافة الصور
+    # -----------------------------------------
+
+    current = 0
+
+    for row in table.rows:
+
+        for cell in row.cells:
+
+            cell.width = Cm(
+                PHOTO_WIDTH_CM
             )
 
-        with c2:
-            st.metric(
-                "🖼️ صور بالصفحة",
-                layout["per_page"]
+            cell.vertical_alignment = (
+                WD_CELL_VERTICAL_ALIGNMENT.CENTER
             )
 
-        with c3:
-            st.metric(
-                "📄 عدد صفحات A4",
-                pages
-            )
+            if current < copies:
 
-        st.info(
-            f"القالب الحالي: "
-            f"{layout['columns']} صور بالسطر × "
-            f"{layout['rows']} أسطر"
-        )
+                paragraph = (
+                    cell.paragraphs[0]
+                )
 
-    # ======================================
-    # إنشاء PDF
-    # ======================================
+                paragraph.alignment = 1
+
+                run = paragraph.add_run()
+
+                # إضافة الصورة
+                run.add_picture(
+                    io.BytesIO(
+                        image_buffer.getvalue()
+                    ),
+                    width=Cm(
+                        PHOTO_WIDTH_CM
+                    ),
+                    height=Cm(
+                        PHOTO_HEIGHT_CM
+                    )
+                )
+
+                current += 1
+
+            else:
+
+                cell.text = ""
+
+    # -----------------------------------------
+    # حفظ Word
+    # -----------------------------------------
+
+    output = io.BytesIO()
+
+    document.save(
+        output
+    )
+
+    output.seek(0)
+
+    return output
+
+
+# =========================================================
+# تشغيل البرنامج
+# =========================================================
+
+if uploaded:
+
+    image = Image.open(
+        uploaded
+    )
+
+    st.success(
+        "تم رفع الصورة بنجاح ✅"
+    )
+
+    # -----------------------------------------
+    # معاينة
+    # -----------------------------------------
+
+    st.subheader(
+        "👀 الصورة"
+    )
+
+    st.image(
+        image,
+        width=220
+    )
 
     st.divider()
 
+    # -----------------------------------------
+    # عدد النسخ
+    # -----------------------------------------
+
+    copies = st.number_input(
+        "🔢 عدد النسخ",
+        min_value=1,
+        max_value=200,
+        value=6,
+        step=1
+    )
+
+    st.info(
+        f"📄 القالب: A4 | "
+        f"📸 المقاس: 3×4 سم | "
+        f"🖼️ 6 صور بالسطر | "
+        f"🔢 عدد النسخ: {copies}"
+    )
+
+    # -----------------------------------------
+    # زر إنشاء الملفات
+    # -----------------------------------------
+
     if st.button(
-        "🖨️ إنشاء PDF للطباعة",
+        "🖨️ تجهيز الملفات",
         type="primary",
         use_container_width=True
     ):
 
         with st.spinner(
-            "جاري ترتيب الصور وإنشاء PDF..."
+            "جاري تجهيز Word و PDF..."
         ):
 
-            pdf, pages = create_pdf(
-                image_items,
-                photo_w,
-                photo_h,
-                columns,
-                gap,
-                0.5
+            pdf_file = create_pdf(
+                image,
+                copies
             )
 
-        if pdf:
-
-            st.success(
-                f"✅ تم إنشاء PDF بنجاح — {pages} صفحة"
+            word_file = create_word(
+                image,
+                copies
             )
+
+        st.success(
+            "✅ تم تجهيز الملفات بنجاح"
+        )
+
+        # -------------------------------------
+        # أزرار التحميل
+        # -------------------------------------
+
+        col1, col2 = st.columns(2)
+
+        with col1:
 
             st.download_button(
-                "📥 تحميل PDF الجاهز للطباعة",
-                data=pdf,
-                file_name="PhotoPrint_A4.pdf",
-                mime="application/pdf",
-                type="primary",
+                "📄 تحميل Word",
+                data=word_file,
+                file_name="صور_3x4.docx",
+                mime=(
+                    "application/vnd.openxmlformats-"
+                    "officedocument.wordprocessingml.document"
+                ),
                 use_container_width=True
             )
 
-        else:
+        with col2:
 
-            st.error(
-                "❌ لا يمكن وضع هذا المقاس داخل A4. "
-                "اختار مقاسًا أصغر."
+            st.download_button(
+                "📕 تحميل PDF",
+                data=pdf_file,
+                file_name="صور_3x4.pdf",
+                mime="application/pdf",
+                use_container_width=True
             )

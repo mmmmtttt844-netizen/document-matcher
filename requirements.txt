@@ -5,3 +5,4 @@ pdf2image
 PyMuPDF
 rapidfuzz
 reportlab
+python-docx
